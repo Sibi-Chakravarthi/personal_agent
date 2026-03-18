@@ -1,86 +1,68 @@
 """
 Three-tier model routing:
-  qwen2.5-coder:14b   → code / debug / file tasks
+  qwen2.5-coder:14b   → code / debug / file tasks / project building
   deepseek-r1:8b       → reasoning / analysis / planning / comparison
   llama3.1:8b          → general chat / quick answers / casual
 """
 
 from config import MODELS
 
-CODE_KEYWORDS = {
-    # intent
-    "code", "debug", "fix", "error", "bug", "implement", "write a", "write me",
-    "refactor", "optimize", "function", "class", "script", "program",
-    "algorithm", "compile", "syntax", "runtime", "traceback", "exception",
-    "snippet", "codeblock", "lint", "type hint", "decorator",
-    # languages & tools
-    "python", "javascript", "typescript", "java", "c++", "rust", "go",
-    "html", "css", "sql", "bash", "shell", "git", "docker", "api",
-    "regex", "json", "yaml", "import", "library", "package", "module",
-    "react", "node", "flask", "django", "fastapi", "express",
-    # file actions
-    "read my file", "look at my code", "check this file", "review this",
-    "explain this code", "what does this do", "run this code", "execute",
-}
+import json
+import requests
+from config import MODELS, OLLAMA_BASE
 
-REASONING_KEYWORDS = {
-    # analysis & planning
-    "analyze", "analyse", "compare", "contrast", "evaluate", "assess",
-    "plan", "design", "architect", "strategy", "think through",
-    "pros and cons", "trade-off", "tradeoff", "pros cons",
-    "summarize", "summarise", "break down", "step by step",
-    "reasoning", "logic", "deduce", "infer", "conclude",
-    # complex tasks
-    "research", "investigate", "deep dive", "comprehensive",
-    "explain in detail", "elaborate", "thorough",
-    "decision", "recommend", "suggest approach", "best way",
-    "why should", "how would you", "what approach",
-}
+ROUTER_PROMPT = """\
+You are an intent classifier. Your ONLY job is to route the user's message to the correct model.
+Respond with EXACTLY ONE WORD from the choices below. No explanations. No punctuation.
 
-TOOL_KEYWORDS = {
-    # datetime
-    "time", "date", "timezone", "countdown", "calendar",
-    # system
-    "cpu", "ram", "memory", "disk", "battery", "processes", "system info",
-    # clipboard
-    "clipboard", "paste", "copied",
-    # notes
-    "note", "todo", "to-do", "to do", "reminder",
-    # calculator
-    "calculate", "math", "convert", "conversion",
-    # weather
-    "weather", "temperature", "forecast",
-    # http
-    "http request", "api call", "fetch url",
-}
+Choices:
+- REASONING : If the user wants to build/create a website, app, UI, frontend, or asks for complex architectural planning, strategy, comparing trade-offs, or deep analysis.
+- CODE      : If the user needs raw programming help, debugging, fixing an error string, reading/writing single scripts, or shell commands.
+- GENERAL   : If the user asks a simple question (weather, time), casual chat, or basic file manipulation/OS tasks.
 
-
-CREATIVE_CODE_KEYWORDS = {
-    "website", "frontend", "ui", "ux", "display", "interface", "react", "html", 
-    "aesthetic", "design", "css", "layout"
-}
+User Message:
+{msg}
+"""
 
 def pick_model(user_message: str) -> str:
-    """Return the model name best suited for this message."""
-    msg = user_message.lower()
-
-    # Check creative coding keywords first (highest priority) -> deeply logical design needed
-    for kw in CREATIVE_CODE_KEYWORDS:
-        if kw in msg:
+    """Use the small router model to classify the intent and pick the best model."""
+    prompt = ROUTER_PROMPT.format(msg=user_message)
+    
+    try:
+        resp = requests.post(
+            f"{OLLAMA_BASE}/api/generate",
+            json={
+                "model": MODELS["router"],
+                "prompt": prompt,
+                "stream": False,
+                # Force very short completion to keep it fast
+                "options": {"num_predict": 5, "temperature": 0.0}
+            },
+            timeout=5
+        )
+        resp.raise_for_status()
+        result = resp.json().get("response", "").strip().upper()
+        
+        # Strip out deepseek think blocks if the user didn't install llama3.2 and hallucinated deepseek as router
+        import re
+        result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL).strip()
+        
+        if "REASONING" in result:
             return MODELS["reasoning"]
-
-    # Check code keywords next
-    for kw in CODE_KEYWORDS:
-        if kw in msg:
+        if "CODE" in result:
             return MODELS["code"]
-
-    # Check reasoning keywords
-    for kw in REASONING_KEYWORDS:
-        if kw in msg:
+        
+        return MODELS["general"]
+        
+    except Exception as e:
+        print(f"  [Router fallback due to error: {e}]")
+        # Fallback to simple heuristic if router is missing or fails
+        msg = user_message.lower()
+        if any(w in msg for w in ["website", "build", "frontend", "ui", "design"]):
             return MODELS["reasoning"]
-
-    # General model for everything else (incl tool-keywords — tools don't need big models)
-    return MODELS["general"]
+        if any(w in msg for w in ["code", "error", "script", "fix", "bug"]):
+            return MODELS["code"]
+        return MODELS["general"]
 
 
 def label(model: str) -> str:

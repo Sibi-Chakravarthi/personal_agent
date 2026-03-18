@@ -7,6 +7,7 @@ MODELS = {
     "code":      "qwen2.5-coder:14b",     # coding, debugging, file analysis
     "reasoning": "deepseek-r1:8b",         # complex analysis, planning, comparison
     "general":   "llama3.1:8b",            # chat, quick questions, casual
+    "router":    "llama3.2:1b",            # blazing fast intent classification
 }
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
