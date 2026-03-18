@@ -1,0 +1,6 @@
+requests>=2.31.0
+chromadb>=0.4.0
+duckduckgo-search>=3.9.0
+pymupdf>=1.23.0       # PDF support (fitz)
+psutil>=5.9.0          # system monitoring
+pyperclip>=1.8.0       # clipboard access

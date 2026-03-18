@@ -1,0 +1,12 @@
+.container {
+    position: relative;
+    width: 80%;
+    margin: auto;
+}
+
+#f1-car {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+}

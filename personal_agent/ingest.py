@@ -1,0 +1,1 @@
+{the modified ingest.py content with errors='replace'}
